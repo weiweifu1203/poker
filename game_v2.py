@@ -36,10 +36,11 @@ all_ranks_name = [None,None,"2", "3", "4", "5", "6", "7", "8", "9", "10","J", "Q
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-fh = logging.FileHandler(LOG_FILE, mode='a')
+fh = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
 fh.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 fh.setFormatter(formatter)
 
 logger.addHandler(fh)
@@ -126,12 +127,14 @@ def get_hand_power(a_hand):
     for i in range(0, len(a_hand)):
         if(a_hand[i][0] == cur_rank):
             cur_rep = cur_rep + 1
-        else:
             if(cur_rep == 3 and cur_rank > three_kind_rank):
                 three_kind_rank = cur_rank
+                if (three_kind_rank == pair_rank):
+                    pair_rank = -1
             else:
                 if(cur_rep == 2 and cur_rank > pair_rank):
                     pair_rank = cur_rank
+        else:
             cur_rank = a_hand[i][0]
             cur_rep = 1
     if(three_kind_rank != -1 and pair_rank != -1):
@@ -323,6 +326,7 @@ class PlayerInfo:
     unsend_chat_text = ""
     setting_bet = 0
     online = False
+    showdown = False
     
     def __init__(self, player_name, password, player_id = 0, player_floating_surplus = 0):
         global free_player_id
@@ -526,15 +530,15 @@ async def info_table_manager(this_player_info,this_desk_info):
                 desk_river_cards_str = put_image(open("poker_imgs/p_back.png", 'rb').read(),width='50px')
         #信息面板
         table = [
-            ['你的状态', span(your_state_str, col = 3)],
-            ['你的筹码', this_player_info.player_chips, '累计盈亏',this_player_info.player_floating_surplus],
-            ['你的手牌', span(your_hand_cards_str, col = 3)],
-            [span(put_markdown('**桌面信息**'), col = 4)],
-            ['牌桌状态', span(desk_state_str, col = 3)],
-            ['翻牌', span(desk_flop_cards_str, col = 3)],
-            ['转/河牌', span(put_table([[desk_turn_cards_str,desk_river_cards_str]]), col = 3)],
-            ['当前底池',span(this_desk_info.pot, col = 3)],
-            ['玩家', '位置','操作','筹码'],
+            ['你的状态', span(your_state_str, col = 4)],
+            ['你的筹码', this_player_info.player_chips, '累计盈亏',span(this_player_info.player_floating_surplus, col=2)],
+            ['你的手牌', span(your_hand_cards_str, col = 4)],
+            [span(put_markdown('**桌面信息**'), col = 5)],
+            ['牌桌状态', span(desk_state_str, col = 4)],
+            ['翻牌', span(desk_flop_cards_str, col = 4)],
+            ['转/河牌', span(put_table([[desk_turn_cards_str,desk_river_cards_str]]), col = 4)],
+            ['当前底池',span(this_desk_info.pot, col = 4)],
+            ['玩家', '位置','操作','筹码','手牌'],
         ]
         
         def short_player_state_str(a_player_info):
@@ -552,7 +556,18 @@ async def info_table_manager(this_player_info,this_desk_info):
             elif(not a_player_info.do_raise):
                 state_str = "下注 {}".format(a_player_info.player_bet)
             return state_str
-        
+
+        def showdown_player_state_draw(a_player_info):
+            state_hand_cards = ""
+            if(a_player_info.showdown):
+                state_hand_cards = put_table([[put_image(open(get_card_img(a_player_info.hand_cards[0]), 'rb').read(),width='50px'),
+                                              put_image(open(get_card_img(a_player_info.hand_cards[1]), 'rb').read(),width='50px')]])
+            else:
+                state_hand_cards = put_table([[put_image(open("poker_imgs/p_back.png", 'rb').read(),width='50px'),
+                                                  put_image(open("poker_imgs/p_back.png", 'rb').read(),width='50px')
+                                                  ]])
+            return state_hand_cards
+
         #玩家信息
         for i in range(0,MAX_PLAYER_ON_TABLE):
             if(this_desk_info.seats[i] != None):
@@ -561,11 +576,12 @@ async def info_table_manager(this_player_info,this_desk_info):
                     this_desk_info.seats[i].player_name,
                     this_desk_info.seats[i].sit_as,
                     short_player_state_str(this_desk_info.seats[i]),
-                    this_desk_info.seats[i].player_chips
+                    this_desk_info.seats[i].player_chips,
+                    span(showdown_player_state_draw(this_desk_info.seats[i]), col = 2)
                 ])
         
         with use_scope('info-table', clear=True):
-            put_table(table,header = [span('你的信息', col = 4)])
+            put_table(table,header = [span('你的信息', col = 5)])
             
             
 def basic_layout():
@@ -578,8 +594,9 @@ def basic_layout():
     with use_scope('msg-area', clear=True):
         with use_scope('msg-box', clear=True):
             put_markdown("")
-    with use_scope('input-area', clear=True):
-        put_markdown("")
+    with use_scope('input-main-area', clear=True):
+        with use_scope('input-area', clear=True):
+            put_markdown("")
         
         
         
@@ -827,6 +844,12 @@ async def desk_manager(this_desk_info):
             create_a_message("📢系统", '仅剩下玩家 {} ,赢得全部底池 {}'.format(the_left_player_info.player_name,this_desk_info.pot))
             the_left_player_info.player_chips = the_left_player_info.player_chips + the_left_player_info.player_equity
             the_left_player_info.player_floating_surplus = the_left_player_info.player_floating_surplus + the_left_player_info.player_equity - the_left_player_info.player_investment
+
+            for i in range(0, MAX_PLAYER_ON_TABLE):
+                if(this_desk_info.seats[i] != None):
+                    this_desk_info.seats[i].refresh_input(INPUT_STATES.INPUT_SETTLE)
+            this_desk_info.refresh_table()
+
             this_desk_info.desk_state = DESK_STATES.WAIT_TO_START
             save_persist_data()
             return
@@ -879,9 +902,17 @@ async def desk_manager(this_desk_info):
                     player.player_floating_surplus = player.player_floating_surplus + player.player_equity_final - player.player_investment
                     #从桌上移除
                     player.has_fold = True
-            this_desk_info.desk_state = DESK_STATES.WAIT_TO_START
+
+                    player.showdown = True
+
+            for i in range(0, MAX_PLAYER_ON_TABLE):
+                if(this_desk_info.seats[i] != None and this_desk_info.seats[i].has_fold):
+                    this_desk_info.seats[i].refresh_input(INPUT_STATES.INPUT_SETTLE)
+            this_desk_info.refresh_table()
             save_persist_data()
-            
+            await asyncio.sleep(10)
+            this_desk_info.desk_state = DESK_STATES.WAIT_TO_START
+        
             return
 
         #进入下一轮
@@ -930,8 +961,10 @@ async def desk_manager(this_desk_info):
                 if(this_desk_info.seats[this_desk_info.wait_index] != None and not this_desk_info.seats[this_desk_info.wait_index].has_fold and this_desk_info.seats[this_desk_info.wait_index].player_chips > 0):
                     create_a_message("📢系统", '轮到 {} 决策了'.format(this_desk_info.seats[this_desk_info.wait_index].player_name))
                     this_desk_info.seats[this_desk_info.wait_index].refresh_input(INPUT_STATES.INPUT_OPEN)
-                    this_desk_info.seats[this_desk_info.UTG_index].setting_bet = 0
-                    this_desk_info.seats[this_desk_info.UTG_index].in_deciding = True
+
+                    #this_desk_info.UTG_index改成this_desk_info.wait_index
+                    this_desk_info.seats[this_desk_info.wait_index].setting_bet = 0
+                    this_desk_info.seats[this_desk_info.wait_index].in_deciding = True
                     this_desk_info.end_index = this_desk_info.SB_index
                     break
     #统计桌上在线人数，同时去除桌上不在线的玩家
@@ -987,6 +1020,7 @@ async def desk_manager(this_desk_info):
                     this_desk_info.seats[i].in_deciding = False
                     this_desk_info.seats[i].hand_cards = []
                     this_desk_info.seats[i].refresh_input(INPUT_STATES.INPUT_WAIT_OTHERS)
+                    this_desk_info.seats[i].showdown = False
                     if(this_desk_info.seats[i].player_chips < AUTO_RELOAD_CHIPS_WHEN_LESS_THAN):
                         this_desk_info.seats[i].player_chips = this_desk_info.seats[i].player_chips + DEFAULT_BUYIN
             #初始化BTN位置
@@ -1058,12 +1092,13 @@ class INPUT_STATES:
     INPUT_WAIT_OPEN = 40
     INPUT_OPEN = 50
     INPUT_CALL = 50
-    INPUT_READY = 60
+    INPUT_SETTLE = 60
     INPUT_WAIT_OTHERS = 70
 
 async def input_manager_once(this_player_info,this_desk_info):
     global players_info_by_name
     global global_msgs
+    
 
     def try_set_a_bet(try_bet,this_player_info,this_desk_info):
         logger.debug('try_set_a_bet:try_bet:{},highest_bet:{},player_chips:{},player_bet:{}'.format(
@@ -1084,18 +1119,6 @@ async def input_manager_once(this_player_info,this_desk_info):
                 input('聊个天:', name = 'chat_text', value = this_player_info.unsend_chat_text),
                 actions(name = 'CMD', buttons = [{'label': '发送', 'value': '发送', 'color': 'warning'},
                                                  {'label': '坐下', 'value': '坐下', 'color': 'warning'},
-                                                 {'label': '增加{}筹码'.format(DEFAULT_BUYIN), 'value': '增加{}筹码'.format(DEFAULT_BUYIN), 'color': 'warning'},
-                                                 {'label': '减少{}筹码'.format(DEFAULT_BUYIN), 'value': '减少{}筹码'.format(DEFAULT_BUYIN), 'color': 'warning'}
-                                                ])
-            ])
-
-    if(this_player_info.input_state == INPUT_STATES.INPUT_READY):
-        with use_scope('input-area', clear=True):
-            input_data = await input_group("你已入座，请准备",[
-                input('聊个天:', name = 'chat_text', value = this_player_info.unsend_chat_text),
-                actions(name = 'CMD', buttons = [{'label': '发送', 'value': '发送', 'color': 'warning'},
-                                                 {'label': '站起', 'value': '站起', 'color': 'warning'},
-                                                 {'label': '准备', 'value': '准备', 'color': 'warning'},
                                                  {'label': '增加{}筹码'.format(DEFAULT_BUYIN), 'value': '增加{}筹码'.format(DEFAULT_BUYIN), 'color': 'warning'},
                                                  {'label': '减少{}筹码'.format(DEFAULT_BUYIN), 'value': '减少{}筹码'.format(DEFAULT_BUYIN), 'color': 'warning'}
                                                 ])
@@ -1136,6 +1159,18 @@ async def input_manager_once(this_player_info,this_desk_info):
                 input('聊个天:', name = 'chat_text', value = this_player_info.unsend_chat_text),
                 actions(name = 'CMD', buttons = [{'label': '发送', 'value': '发送', 'color': 'warning'}])
             ])
+
+    elif(this_player_info.input_state == INPUT_STATES.INPUT_SETTLE):
+        with use_scope('input-area', clear=True):   
+            if(this_desk_info.seats[this_desk_info.wait_index] != None): 
+                title_str = "是否亮牌"
+            else:
+                title_str = "盖牌，等待系统操作..." 
+            input_data = await input_group(title_str,[
+                input('聊个天:', name = 'chat_text', value = this_player_info.unsend_chat_text),
+                actions(name = 'CMD', buttons = [{'label': '亮牌', 'value': '亮牌', 'color': 'warning'}])
+            ])
+
     
     def confirm_bet(this_player_info,confirm_bet):
         this_player_info.refresh_input(INPUT_STATES.INPUT_WAIT_OTHERS)
@@ -1186,7 +1221,12 @@ async def input_manager_once(this_player_info,this_desk_info):
                     logger.info('等待玩家 {} 决策'.format(next_player_info.player_name))
                     return "success,wait next"
             
-    
+    if(input_data['CMD'] == '亮牌'):
+        this_player_info.showdown = True
+        this_player_info.refresh_input(INPUT_STATES.INPUT_WAIT_OTHERS)
+        this_desk_info.refresh_table()
+
+
     if(input_data['CMD'] == '1/3POT'):
         this_player_info.setting_bet = try_set_a_bet(this_desk_info.pot * 1 // 3,this_player_info,this_desk_info)
         this_player_info.refresh_input()
@@ -1270,18 +1310,6 @@ async def input_manager_once(this_player_info,this_desk_info):
             toast("当前没有座位")
         this_player_info.refresh_input()
 
-    elif(input_data['CMD'] == '准备'):
-        this_player_info.refresh_input(INPUT_STATES.INPUT_STAND)
-        for i in range(0, MAX_PLAYER_ON_TABLE):
-            if(this_desk_info.seats[i] == this_player_info):
-                this_desk_info.seats[i] = None
-                this_player_info.sit_at = -1
-                create_a_message("📢系统", '{} 站起来了'.format(this_player_info.player_name))
-                this_desk_info.refresh_table()
-                this_player_info.unsend_chat_text = input_data['chat_text']
-                break
-        this_player_info.refresh_input()
-
     elif(input_data['CMD'] == '站起'):
         this_player_info.refresh_input(INPUT_STATES.INPUT_STAND)
         for i in range(0, MAX_PLAYER_ON_TABLE):
@@ -1328,8 +1356,8 @@ async def input_manager(this_player_info):
                 try:
                     #input_manager_once_task.cancel()
                     input_manager_once_task.close()
-                except:
-                    logger.debug('input_manager_once_task.close() exception')
+                except Exception as e:
+                    logger.error("Error closing task: %s", e)
             input_manager_once_task = run_async(input_manager_once(this_player_info,desk_info))
 
 
