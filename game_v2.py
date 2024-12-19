@@ -13,7 +13,7 @@ from pywebio.session import defer_call, info as session_info, run_async
 
 
 # const settings
-MAX_MESSAGES_CNT = 5000
+MAX_MESSAGES_CNT = 500
 MAX_PLAYER_ON_TABLE = 12
 MIN_PLAYER_TO_START = 2
 DATA_FILE = "save_test1.json"
@@ -36,7 +36,7 @@ all_ranks_name = [None,None,"2", "3", "4", "5", "6", "7", "8", "9", "10","J", "Q
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-fh = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
+fh = logging.FileHandler(LOG_FILE, mode='a')
 fh.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -439,7 +439,7 @@ async def msg_manager(this_player_info):
                 time_str = msg.send_time.strftime("%H:%M:%S")
                 put_markdown("`{}` `{}` : {}".format(time_str,msg.from_whom,msg.content), sanitize = True, scope = 'msg-box')
                 if(last_idx !=0 and msg.do_toast):
-                    toast('{} : {}'.format(msg.from_whom,msg.content))
+                    toast('{} : {}'.format(msg.from_whom,msg.content), duration=5)
 
         # remove expired message
         if len(global_msgs) > MAX_MESSAGES_CNT:
@@ -563,8 +563,8 @@ async def info_table_manager(this_player_info,this_desk_info):
                 state_hand_cards = put_table([[put_image(open(get_card_img(a_player_info.hand_cards[0]), 'rb').read(),width='50px'),
                                               put_image(open(get_card_img(a_player_info.hand_cards[1]), 'rb').read(),width='50px')]])
             else:
-                state_hand_cards = put_table([[put_image(open("poker_imgs/p_back.png", 'rb').read(),width='50px'),
-                                                  put_image(open("poker_imgs/p_back.png", 'rb').read(),width='50px')
+                state_hand_cards = put_table([[put_image(open("poker_imgs/p_back.png", 'rb').read(),width='30px'),
+                                                  put_image(open("poker_imgs/p_back.png", 'rb').read(),width='30px')
                                                   ]])
             return state_hand_cards
 
@@ -594,9 +594,8 @@ def basic_layout():
     with use_scope('msg-area', clear=True):
         with use_scope('msg-box', clear=True):
             put_markdown("")
-    with use_scope('input-main-area', clear=True):
-        with use_scope('input-area', clear=True):
-            put_markdown("")
+    with use_scope('input-area', clear=True):
+        put_markdown("")
         
         
         
@@ -910,7 +909,7 @@ async def desk_manager(this_desk_info):
                     this_desk_info.seats[i].refresh_input(INPUT_STATES.INPUT_SETTLE)
             this_desk_info.refresh_table()
             save_persist_data()
-            await asyncio.sleep(10)
+            await asyncio.sleep(30)
             this_desk_info.desk_state = DESK_STATES.WAIT_TO_START
         
             return
@@ -1262,7 +1261,7 @@ async def input_manager_once(this_player_info,this_desk_info):
             confirm_bet(this_player_info,bet_after)
             set_next_player(this_desk_info)
         else:
-            toast('下注金额已自动修改为{},点[确认下注]下注'.format(bet_after))
+            toast('下注金额已自动修改为{},点[确认下注]下注'.format(bet_after), duration=5 )
             this_player_info.setting_bet = bet_after
         this_player_info.refresh_input()
             
@@ -1271,7 +1270,7 @@ async def input_manager_once(this_player_info,this_desk_info):
             confirm_bet(this_player_info,0)
             set_next_player(this_desk_info)
         else:
-            toast('不可过牌')
+            toast('不可过牌', duration=5)
         this_player_info.refresh_input()
             
     elif(input_data['CMD'] == '跟注'):
@@ -1307,7 +1306,7 @@ async def input_manager_once(this_player_info,this_desk_info):
                 this_player_info.unsend_chat_text = input_data['chat_text']
                 break
         if(not have_seat):
-            toast("当前没有座位")
+            toast("当前没有座位", duration=5)
         this_player_info.refresh_input()
 
     elif(input_data['CMD'] == '站起'):
@@ -1336,7 +1335,7 @@ async def input_manager_once(this_player_info,this_desk_info):
             this_desk_info.refresh_table()
             this_player_info.unsend_chat_text = input_data['chat_text']
         else:
-            toast('无法减少，已仅剩 {} 筹码'.format(this_player_info.player_chips))
+            toast('无法减少，已仅剩 {} 筹码'.format(this_player_info.player_chips), duration=5)
         this_player_info.refresh_input()
 
 async def input_manager(this_player_info):
@@ -1351,6 +1350,7 @@ async def input_manager(this_player_info):
         await asyncio.sleep(0.2)
         if(this_player_info.input_version != current_input_version):# INPUT_version changes
             this_player_info.input_version = current_input_version
+            #await input_manager_once(this_player_info,desk_info)
             if(input_manager_once_task != None):
                 logger.debug('input_manager_once_task.close()')
                 try:
@@ -1358,6 +1358,7 @@ async def input_manager(this_player_info):
                     input_manager_once_task.close()
                 except Exception as e:
                     logger.error("Error closing task: %s", e)
+                    del input_manager_once_task
             input_manager_once_task = run_async(input_manager_once(this_player_info,desk_info))
 
 
@@ -1392,22 +1393,23 @@ async def main():
     def on_close():
         logger.info('session {} closed'.format(session_id))
         player_leave(this_player_info)
+        ##Finish
+        async_task1.close()
+        async_task2.close()
+        async_task3.close()
+        toast("你离开了房间")
         
     async_task1 = run_async(desk_manager(desk_info))
     async_task2 = run_async(info_table_manager(this_player_info,desk_info))  
     async_task3 = run_async(msg_manager(this_player_info))  
     
     await input_manager(this_player_info)
-    
-    ##Finish
-    async_task1.close()
-    async_task2.close()
-    async_task3.close()
-    toast("你离开了房间")
+
+
     
     
     
 # run
 load_persist_data()
 config(title='核心')
-start_server(main, debug = True, port = 8894)
+start_server(main, debug = True, port = 22806)
